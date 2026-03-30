@@ -91,6 +91,8 @@ flowchart LR
 5. **Network:** Each cluster must be able to reach the other's east-west gateway LoadBalancer on ports **15443** (cross-network mTLS). Each **istiod** must reach the other cluster's Kubernetes API (remote secret). See [Appendix A](#appendix-a-eastwest-network-connectivity-checks).
 6. **Order:** § 1b → § 2–4 (PKI + `cacerts`) → § 5+ (`Istio` CR). For console-first operator install or non-default channels, follow the [installing guide](https://docs.redhat.com/en/documentation/red_hat_openshift_service_mesh/3.3/html/installing/ossm-installing-service-mesh).
 
+**Optional automation:** from the repo root, with **`KUBECONFIG_EAST`** and **`KUBECONFIG_WEST`** set to valid kubeconfigs, **[`scripts/day1-deploy.sh`](../scripts/day1-deploy.sh)** runs **§1b–§9** (operator, CNI, PKI, `cacerts`, `Istio`, east–west, ROSA remote-secret patch). See **[README.md](../README.md#automated-day-1-scriptsday1-deploysh)** for flags and prerequisites.
+
 ---
 
 ## 1b) Install the Red Hat OpenShift Service Mesh Operator and Istio CNI (both clusters)
@@ -629,7 +631,11 @@ oc adm policy add-cluster-role-to-user cluster-reader -z istio-reader-service-ac
 
 `istioctl create-remote-secret` must read the cluster you export credentials **from**; **`oc apply`** in the same pipeline targets whichever cluster your **`oc`** client is currently pointed at. Use `--kubeconfig=…` with the file (or generated secret) that authenticates to the **named** cluster.
 
-Before `istioctl create-remote-secret`, ensure the **embedded kubeconfig’s** current context uses **namespace `istio-system`** (where the reader `ServiceAccount` lives). With **`oc`** pointed at the cluster **`istioctl` is about to read** (e.g. **West** first), run:
+Pass **`-n istio-system`** (and **`-i istio-system`**) to **`istioctl`** so it reads the **`istio-reader-service-account`** in **`istio-system`**; otherwise the tool may look in **`default`** and fail with `istio-reader-service-account.default` not found.
+
+Before `istioctl create-remote-secret`, you may also set the kubeconfig **current context** namespace (optional if you use **`-n`**):
+
+With **`oc`** pointed at the cluster **`istioctl` is about to read** (e.g. **West** first), run:
 
 ```bash
 oc config set-context --current --namespace=istio-system
@@ -645,6 +651,8 @@ Repeat with **`oc`** pointed at **East** before generating the secret that reads
 ```bash
 istioctl create-remote-secret \
   --kubeconfig=/path/to/kubeconfig-for-west-cluster \
+  -n istio-system \
+  -i istio-system \
   --name=cluster2 \
   --create-service-account=false | \
   oc apply -f -
@@ -658,6 +666,8 @@ istioctl create-remote-secret \
 ```bash
 istioctl create-remote-secret \
   --kubeconfig=/path/to/kubeconfig-for-east-cluster \
+  -n istio-system \
+  -i istio-system \
   --name=cluster1 \
   --create-service-account=false | \
   oc apply -f -
@@ -675,6 +685,8 @@ Instead of piping directly to `oc apply`, save the raw output, fix it with a scr
 # Generate raw secret (istioctl reads West; use your West kubeconfig path)
 istioctl create-remote-secret \
   --kubeconfig=/path/to/kubeconfig-for-west-cluster \
+  -n istio-system \
+  -i istio-system \
   --name=cluster2 \
   --create-service-account=false > /tmp/remote-secret-raw.yaml
 
@@ -850,7 +862,7 @@ openssl s_client -connect "${EAST_EW}:15443" -servername istiod.istio-system.svc
 | **`Istio` not Ready** | **Run on:** that cluster — `oc describe istio default -n istio-system`; `oc logs -n istio-system deploy/istiod`; operator logs in `openshift-operators`. |
 | **`cacerts` / PKI errors** | § 3–4: matching root hash; replacing an existing secret requires `oc delete secret cacerts -n istio-system` first (PoC only). |
 | **Remote secret / `x509: certificate signed by unknown authority`** in **istiod** | § 9c ROSA workaround; ensure **both** directions were post-processed and applied to the **correct** cluster. |
-| **`istioctl create-remote-secret` fails** | Reader SA and **cluster-reader** RBAC (§ 9a); default namespace **`istio-system`** in the kubeconfig context **istioctl** reads. |
+| **`istioctl create-remote-secret` fails** (e.g. `istio-reader-service-account.default` not found) | Reader SA and **cluster-reader** RBAC (§ 9a); add **`-n istio-system`** (and **`-i istio-system`**) to **`istioctl`**. |
 | **Gateway** not **Programmed** | `oc describe gtw …`; `oc get deploy,svc` in the ingress namespace; **GatewayClass** `istio` accepted; injection label on namespace. |
 | **HTTP 404 from ingress** | **`HTTPRoute`** `parentRefs` / `hostnames` / paths; one **AND**ed `matches` list per rule (see applications doc). |
 | **Cross-namespace backend 403/404** | **`ReferenceGrant`** in the **Service’s** namespace ([`manifests/sample/`](../manifests/sample/)). |

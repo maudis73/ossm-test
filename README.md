@@ -71,6 +71,164 @@ When infra is ready, follow [docs/ossm-mesh-applications-and-routing.md](docs/os
 
 ---
 
+## Automated Day 1 (`scripts/day1-deploy.sh`)
+
+The script runs provisioning **[§1b through §9](docs/ossm-multi-cluster-mesh-provisioning.md)** on **both** clusters. **Step-by-step commands** (login, env vars, verification, manual fallback) are in **[Repeat deployment — exact command flow](#repeat-deployment--exact-command-flow)** below.
+
+**Not covered by the script:** Gateway API ingress (**§10–11**) and the [applications doc](docs/ossm-mesh-applications-and-routing.md).
+
+---
+
+## Repeat deployment — exact command flow
+
+Use this to reproduce what the automation does on **two ROSA clusters** (East + West). Adjust API URLs and paths to match your environment.
+
+### 1) Workstation checks
+
+```bash
+oc version --client
+istioctl version --remote=false   # should match Istio line shipped by OSSM (e.g. 1.28.x)
+command -v openssl python3
+python3 -c "import yaml"          # PyYAML; e.g. Fedora: sudo dnf install python3-pyyaml
+```
+
+Set the Istio version used in heredocs and **`IstioCNI`** / **`Istio` CR** (no leading `v` in the variable):
+
+```bash
+cd /path/to/ossm-test
+export ISTIO_VERSION=1.28.5
+```
+
+### 2) Log in to **each** cluster into **separate** kubeconfig files
+
+Do **not** use one file for both clusters unless you merge contexts by hand. Example: repo-local files (already in **`.gitignore`**):
+
+```bash
+mkdir -p .kube
+
+# East — paste password at prompt (or use a token from the console)
+oc login https://api.YOUR_EAST_SUBDOMAIN.p1.openshiftapps.com:443 \
+  -u cluster-admin \
+  --kubeconfig="$(pwd)/.kube/config-east"
+
+# West
+oc login https://api.YOUR_WEST_SUBDOMAIN.p1.openshiftapps.com:443 \
+  -u cluster-admin \
+  --kubeconfig="$(pwd)/.kube/config-west"
+```
+
+Verify:
+
+```bash
+oc --kubeconfig="$(pwd)/.kube/config-east" get ns | head
+oc --kubeconfig="$(pwd)/.kube/config-west" get ns | head
+```
+
+Export paths for the script:
+
+```bash
+export KUBECONFIG_EAST="$(pwd)/.kube/config-east"
+export KUBECONFIG_WEST="$(pwd)/.kube/config-west"
+```
+
+**Security:** never commit kubeconfigs or passwords. **`new-rosa.txt`**-style credential files should stay **gitignored** or off disk after use.
+
+### 3) Run the full Day 1 script
+
+This performs, in order: **Subscription** (Service Mesh operator) on both clusters → wait for CSV **Succeeded** → **`istio-cni`** project + **`IstioCNI`** → mesh PKI under **`./ossm-mesh-certs`** (unless already present) → **`istio-system`** + **`cacerts`** (East `network1`, West `network2`) → **`Istio`** CR (`cluster1` / `cluster2`, **`mesh1`**) → east–west gateway YAML from sail-operator + **expose-services** → **`cluster-reader`** for **`istio-reader-service-account`** → **remote secrets** (with ROSA TLS patch).
+
+```bash
+# optional: export PKI_DIR="$HOME/ossm-mesh-certs"
+./scripts/day1-deploy.sh
+# optional: ./scripts/day1-deploy.sh --with-console
+# reuse PKI from a previous run: ./scripts/day1-deploy.sh --skip-pki
+```
+
+The script **updates** both kubeconfigs: **`oc config set-context --current --namespace=istio-system`** on each (helps **`istioctl`**). It **deletes and recreates** **`cacerts`** if the secret already exists.
+
+### 4) Remote secrets — if `istioctl` fails (`istio-reader-service-account.default` not found)
+
+**Current `day1-deploy.sh`** passes **`-n istio-system`** and **`-i istio-system`** to **`istioctl`**. If you use older notes or a custom command, **`istioctl`** may look for the reader **ServiceAccount** in **`default`**. Apply secrets manually (ROSA **§9c** TLS workaround):
+
+```bash
+REPO="$(pwd)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# West → East: istioctl reads WEST kubeconfig; oc applies on EAST
+istioctl create-remote-secret \
+  --kubeconfig="$KUBECONFIG_WEST" \
+  -n istio-system \
+  -i istio-system \
+  --name=cluster2 \
+  --create-service-account=false >"$TMP/raw-we.yaml"
+
+python3 "$REPO/scripts/rosa-patch-remote-secret.py" cluster2 "$TMP/raw-we.yaml" "$TMP/fix-we.yaml"
+oc --kubeconfig="$KUBECONFIG_EAST" apply -f "$TMP/fix-we.yaml"
+
+# East → West
+istioctl create-remote-secret \
+  --kubeconfig="$KUBECONFIG_EAST" \
+  -n istio-system \
+  -i istio-system \
+  --name=cluster1 \
+  --create-service-account=false >"$TMP/raw-ew.yaml"
+
+python3 "$REPO/scripts/rosa-patch-remote-secret.py" cluster1 "$TMP/raw-ew.yaml" "$TMP/fix-ew.yaml"
+oc --kubeconfig="$KUBECONFIG_WEST" apply -f "$TMP/fix-ew.yaml"
+```
+
+On **non-ROSA** clusters you can often **`oc apply -f`** the raw **`istioctl`** output without the Python step (see [provisioning doc §9](docs/ossm-multi-cluster-mesh-provisioning.md)).
+
+### 5) Verification (same checks used after deploy)
+
+**East–west gateway** (should be **`1/1`** **Available**, **LoadBalancer** hostname, pod **Running**):
+
+```bash
+oc --kubeconfig="$KUBECONFIG_EAST" -n istio-system get deploy,svc -l istio=eastwestgateway
+oc --kubeconfig="$KUBECONFIG_EAST" -n istio-system get pods -l istio=eastwestgateway
+oc --kubeconfig="$KUBECONFIG_WEST" -n istio-system get deploy,svc -l istio=eastwestgateway
+```
+
+**Remote secrets:**
+
+```bash
+oc --kubeconfig="$KUBECONFIG_EAST" get secret -n istio-system -l istio/multiCluster=true
+oc --kubeconfig="$KUBECONFIG_WEST" get secret -n istio-system -l istio/multiCluster=true
+```
+
+**istiod** (expect no **`x509`** / **`forbidden`** spam):
+
+```bash
+oc --kubeconfig="$KUBECONFIG_EAST" logs deploy/istiod -n istio-system --tail=30 | grep -iE 'x509|forbidden' || true
+oc --kubeconfig="$KUBECONFIG_WEST" logs deploy/istiod -n istio-system --tail=30 | grep -iE 'x509|forbidden' || true
+```
+
+### 6) Optional next steps (not run by `day1-deploy.sh`)
+
+**Gateway API** north–south on each cluster (provisioning **§10–§11**):
+
+```bash
+oc --kubeconfig="$KUBECONFIG_EAST" apply -k manifests/east/
+oc --kubeconfig="$KUBECONFIG_WEST" apply -k manifests/west/
+# cross-namespace backends to sample namespace, as in the doc:
+oc --kubeconfig="$KUBECONFIG_EAST" apply -f manifests/sample/referencegrant-helloworld.yaml
+oc --kubeconfig="$KUBECONFIG_WEST" apply -f manifests/sample/referencegrant-west-ingress.yaml
+```
+
+Then follow [docs/ossm-mesh-applications-and-routing.md](docs/ossm-mesh-applications-and-routing.md) for **`sample`** / helloworld.
+
+### PKI-only helper (equivalent to script §3)
+
+To generate **`east/`** and **`west/`** trees without the full deploy:
+
+```bash
+export PKI_DIR="$PWD/ossm-mesh-certs"
+FORCE_PKI=1 bash scripts/generate-mesh-pki.sh
+```
+
+---
+
 ## Repo layout
 
 | Path | Contents |
@@ -80,6 +238,7 @@ When infra is ready, follow [docs/ossm-mesh-applications-and-routing.md](docs/os
 | `manifests/east/`, `manifests/west/` | Gateway API ingress samples |
 | `manifests/sample/` | **`ReferenceGrant`** helpers |
 | `manifests/console/` | Optional **`ConsoleNotification`** banners |
+| `scripts/` | **`day1-deploy.sh`**, PKI generator, ROSA remote-secret patcher |
 
 **.gitignore** excludes local kubeconfig trees, PKI directories, `*-cert` stubs, and **`config/demo-params.yaml`**.
 

@@ -4,6 +4,7 @@ west-cert
 *-cert
 .env*
 secrets/
+new-rosa.txt
 
 # Per-environment demo values (may contain cluster URLs and kubeconfig paths)
 config/demo-params.yaml
