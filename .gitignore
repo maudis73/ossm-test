@@ -1,0 +1,16 @@
+# Local cluster credentials — never commit
+east-cert
+west-cert
+*-cert
+.env*
+secrets/
+
+# Per-environment demo values (may contain cluster URLs and kubeconfig paths)
+config/demo-params.yaml
+config/demo-params.local.yaml
+
+# Kubeconfig copies / local contexts
+.kube/
+
+# Mesh PKI generated on workstation (provisioning § 3–4)
+ossm-mesh-certs/

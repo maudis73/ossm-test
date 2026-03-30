@@ -1,0 +1,54 @@
+# ------------------------------------------------------------------------------
+# Demo parameters — OpenShift Service Mesh multi-cluster PoC
+#
+#   cp config/demo-params.example.yaml config/demo-params.yaml
+#
+# This file captures **environment identity** for the mesh (names, networks,
+# hostnames, Istio version) so you can reuse the same docs/manifests across
+# many clusters or demo runs.
+#
+# **Cluster access is not defined here.** The docs say **Run on: East** or
+# **Run on: West** — use `oc login`, IDE integration, or automation as you
+# normally would. Never commit tokens or credential files.
+#
+# Optional: export mesh values with yq, e.g.:
+#   export ISTIO_VERSION="$(yq '.demo.istio.version' config/demo-params.yaml)"
+# ------------------------------------------------------------------------------
+
+demo:
+  istio:
+    version: "1.28.5"
+
+  mesh:
+    id: mesh1
+
+  # Optional: keep in sync with manifests/console/*-console-notification.yaml spec.text
+  clusters:
+    east:
+      cluster_name: cluster1
+      network: network1
+      # Handy reference for oc login (not secret). Omit if you do not need it.
+      openshift_api_url: "https://api.YOUR_EAST_SUBDOMAIN.pX.openshiftapps.com:443"
+
+    west:
+      cluster_name: cluster2
+      network: network2
+      openshift_api_url: "https://api.YOUR_WEST_SUBDOMAIN.pX.openshiftapps.com:443"
+
+  # North–south Gateway API (gatewayClassName: istio). Align with manifests if you use the repo YAML.
+  ingress:
+    east:
+      namespace: east-ingress
+      gateway_name: east-ingress
+      hostname: east-ingress.example.com
+    west:
+      namespace: west-ingress
+      gateway_name: west-ingress
+      hostname: west-ingress.example.com
+
+  applications:
+    sample_namespace: sample
+
+  # Optional: workstation paths for mesh PKI (§ 3–4 in provisioning doc)
+  pki:
+    workstation_dir: "/home/YOU/ossm-mesh-certs"

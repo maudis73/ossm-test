@@ -1,0 +1,11 @@
+# Apply only on the West cluster (ROSA2). Cluster-scoped — requires admin.
+# Customize spec.text if your mesh labels differ (see config/demo-params.example.yaml).
+apiVersion: console.openshift.io/v1
+kind: ConsoleNotification
+metadata:
+  name: mesh-poc-west
+spec:
+  text: "OSSM PoC — WEST · cluster2 · network2"
+  location: BannerTop
+  color: "#ffffff"
+  backgroundColor: "#38812f"
