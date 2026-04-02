@@ -1,14 +1,14 @@
-# Allows HTTPRoute in west-ingress to use Service helloworld in this namespace.
+# Allows HTTPRoute in istio-ingress to reference Service helloworld in sample.
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: west-ingress-to-helloworld
+  name: istio-ingress-to-helloworld
   namespace: sample
 spec:
   from:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      namespace: west-ingress
+      namespace: istio-ingress
   to:
     - group: ""
       kind: Service

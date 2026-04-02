@@ -38,13 +38,16 @@ demo:
   # North–south Gateway API (gatewayClassName: istio). Align with manifests if you use the repo YAML.
   ingress:
     east:
-      namespace: east-ingress
-      gateway_name: east-ingress
+      namespace: istio-ingress
+      gateway_name: public-ingress
       hostname: east-ingress.example.com
     west:
-      namespace: west-ingress
-      gateway_name: west-ingress
+      namespace: istio-ingress
+      gateway_name: public-ingress
       hostname: west-ingress.example.com
+  eastwest:
+    namespace: istio-eastwest
+    service_name: istio-eastwestgateway
 
   applications:
     sample_namespace: sample

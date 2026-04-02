@@ -204,18 +204,16 @@ echo "Waiting for Istio Ready (up to 15m per cluster) ..."
 oc_east wait --for=condition=Ready "istio/default" -n istio-system --timeout=900s
 oc_west wait --for=condition=Ready "istio/default" -n istio-system --timeout=900s
 
-echo "== §6–8 East–west gateway + expose-services"
-oc_east apply -f "https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/east-west-gateway-net1.yaml"
-oc_east apply -n istio-system -f "https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/expose-services.yaml"
-oc_west apply -f "https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/east-west-gateway-net2.yaml"
-oc_west apply -n istio-system -f "https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/expose-services.yaml"
+echo "== §6–8 East–west gateway + cross-network Gateway (namespace istio-eastwest)"
+oc_east apply -k "$REPO_ROOT/manifests/istio-eastwest/cluster1"
+oc_west apply -k "$REPO_ROOT/manifests/istio-eastwest/cluster2"
 
 echo "Waiting for istio-eastwestgateway external hostname ..."
 for kc in "$KUBECONFIG_EAST" "$KUBECONFIG_WEST"; do
   for _ in $(seq 1 60); do
-    h=$(oc --kubeconfig "$kc" -n istio-system get svc istio-eastwestgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    h=$(oc --kubeconfig "$kc" -n istio-eastwest get svc istio-eastwestgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
     [[ -n "$h" ]] && break
-    ip=$(oc --kubeconfig "$kc" -n istio-system get svc istio-eastwestgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    ip=$(oc --kubeconfig "$kc" -n istio-eastwest get svc istio-eastwestgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
     [[ -n "$ip" ]] && break
     sleep 10
   done
@@ -252,8 +250,8 @@ oc_west apply -f "$TMP/fixed-east-to-west.yaml"
 echo "== Verification quick checks"
 oc_east get secret -n istio-system -l istio/multiCluster=true
 oc_west get secret -n istio-system -l istio/multiCluster=true
-oc_east -n istio-system get svc istio-eastwestgateway
-oc_west -n istio-system get svc istio-eastwestgateway
+oc_east -n istio-eastwest get svc istio-eastwestgateway
+oc_west -n istio-eastwest get svc istio-eastwestgateway
 
 rm -rf "$TMP"
 echo ""

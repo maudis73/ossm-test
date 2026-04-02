@@ -1,8 +1,7 @@
-# North-south Gateway API ingress on West — symmetrical to manifests/east/.
-# Namespace istio-injection enables the managed gateway workload (west-ingress-istio).
+# North-south Gateway API — namespace istio-ingress (not istio-system).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: west-ingress
+namespace: istio-ingress
 resources:
   - namespace.yaml
   - gateway.yaml

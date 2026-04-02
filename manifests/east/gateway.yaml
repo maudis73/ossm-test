@@ -1,8 +1,8 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: east-ingress
-  namespace: east-ingress
+  name: public-ingress
+  namespace: istio-ingress
 spec:
   gatewayClassName: istio
   listeners:

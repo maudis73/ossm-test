@@ -1,12 +1,12 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: west-ingress-route
-  namespace: west-ingress
+  name: public-ingress-route
+  namespace: istio-ingress
 spec:
   parentRefs:
-    - name: west-ingress
-      namespace: west-ingress
+    - name: public-ingress
+      namespace: istio-ingress
   hostnames:
     - west-ingress.example.com
   rules:
