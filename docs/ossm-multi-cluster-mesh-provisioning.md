@@ -19,7 +19,7 @@ This document is the **infrastructure** runbook: **OpenShift Service Mesh 3.3** 
 | **ROSA2** | West / `cluster2` / `network2` | **`Istio` CR** + **istiod** |
 
 
-Each cluster runs its own istiod. **Remote secrets** let each control plane read the other Kubernetes API. **East–west gateways** terminate cross-network mesh mTLS. **Ingress** (Gateway API) uses a **different** workload than east–west—do not reuse or repoint `istio-eastwestgateway` for north–south.
+Each cluster runs its own istiod. **Namespace layout (this repo):** **`istio-system`** — control plane only (**istiod**, **`cacerts`**, multicluster remote secrets). **`istio-eastwest`** — **`istio-eastwestgateway`** and **`networking.istio.io` `Gateway`** **`cross-network-gateway`** for cross-cluster **15443**. **`istio-ingress`** — Kubernetes **Gateway API** north–south (**`Gateway` `public-ingress`**, **`HTTPRoute`**, **`httpbin`**). **Remote secrets** let each control plane read the other Kubernetes API. **East–west gateways** terminate cross-network mesh mTLS. **Ingress** (Gateway API) uses a **different** workload than east–west—do not reuse or repoint `istio-eastwestgateway` for north–south.
 
 ```mermaid
 flowchart LR
@@ -74,8 +74,8 @@ flowchart LR
 | `demo.mesh.id` | **`Istio`** `values.global.meshID` — **same on both clusters**. |
 | `demo.clusters.east.cluster_name` / `network` | East **`Istio`** `multiCluster.clusterName` and `global.network`. |
 | `demo.clusters.west.cluster_name` / `network` | West **`Istio`**. |
-| `demo.ingress.east.*` | § 10 and [`manifests/east/`](../manifests/east/). |
-| `demo.ingress.west.*` | § 11 and [`manifests/west/`](../manifests/west/). |
+| `demo.ingress.east.*` / `demo.ingress.west.*` | § 10–11; namespaces **`istio-ingress`**, gateway **`public-ingress`**. |
+| `demo.eastwest.*` | § 6–8; **`istio-eastwest`** / **`istio-eastwestgateway`**. |
 | `demo.applications.sample_namespace` | [Applications doc](ossm-mesh-applications-and-routing.md). |
 | `demo.pki.workstation_dir` | § 3–4 OpenSSL working directory. |
 | Console banner text / colors | Edit [`manifests/console/east-console-notification.yaml`](../manifests/console/east-console-notification.yaml) and [`manifests/console/west-console-notification.yaml`](../manifests/console/west-console-notification.yaml) so labels match `demo.clusters.*` (optional § 1c). |
@@ -519,17 +519,16 @@ oc get deploy,svc -n istio-system | grep -E 'istiod|NAME'
 
 ## 6) ROSA1 — east-west gateway + expose services — **Run on: East**
 
-Deploy the east-west gateway and expose services through it. Note: in multi-primary there is **no** `expose-istiod.yaml` — each cluster has its own istiod.
+Deploy east–west gateway workloads in **`istio-eastwest`** (not **`istio-system`**) so the control-plane namespace stays reserved for **istiod**. The bundle includes **`cross-network-gateway`** in the same namespace (required so the Istio `Gateway` selector matches the gateway pods). Manifests: [`manifests/istio-eastwest/cluster1/`](../manifests/istio-eastwest/cluster1/). If you previously applied upstream sail-operator YAML into **`istio-system`**, delete the old east–west **Deployment**/**Service**/**Gateway** there before applying this.
 
 ```bash
-oc apply -f https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/east-west-gateway-net1.yaml
-oc apply -n istio-system -f https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/expose-services.yaml
+oc apply -k manifests/istio-eastwest/cluster1/
 ```
 
 Wait for the gateway to get an external address:
 
 ```bash
-oc -n istio-system get svc istio-eastwestgateway -w
+oc -n istio-eastwest get svc istio-eastwestgateway -w
 ```
 
 (Ctrl+C once **`EXTERNAL-IP`** or hostname is set for **`istio-eastwestgateway`**.)
@@ -537,8 +536,8 @@ oc -n istio-system get svc istio-eastwestgateway -w
 ### Verification (checkpoint — § 6)
 
 ```bash
-oc -n istio-system get svc istio-eastwestgateway
-oc -n istio-system get deploy -l istio=eastwestgateway
+oc -n istio-eastwest get svc istio-eastwestgateway
+oc -n istio-eastwest get deploy -l istio=eastwestgateway
 ```
 
 - **Service** has **`EXTERNAL-IP`** or cloud hostname (ROSA LoadBalancer).
@@ -584,13 +583,14 @@ Same checks as § 5 (**Run on: West**): `oc get istio`, `istiod` pods, deploymen
 
 ## 8) ROSA2 — east-west gateway + expose services — **Run on: West**
 
+Same as § 6 using [`manifests/istio-eastwest/cluster2/`](../manifests/istio-eastwest/cluster2/) (**network2**). Remove legacy east–west objects from **`istio-system`** if migrating.
+
 ```bash
-oc apply -f https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/east-west-gateway-net2.yaml
-oc apply -n istio-system -f https://raw.githubusercontent.com/istio-ecosystem/sail-operator/main/docs/deployment-models/resources/expose-services.yaml
+oc apply -k manifests/istio-eastwest/cluster2/
 ```
 
 ```bash
-oc -n istio-system get svc istio-eastwestgateway
+oc -n istio-eastwest get svc istio-eastwestgateway
 ```
 
 ### Verification (checkpoint — § 8)
@@ -760,39 +760,40 @@ oc logs deploy/istiod -n istio-system | grep -i 'x509.*failed\|forbidden' | tail
 
 ## 10) North–south ingress — Gateway API on **East** (ROSA1)
 
-After § 9, add a **dedicated** north–south entry using the **Kubernetes Gateway API** with **`spec.gatewayClassName: istio`** (not `networking.istio.io/Gateway`). Istio creates a separate **Deployment** and **Service** named **`<gateway.metadata.name>-istio`**, distinct from **`istio-eastwestgateway`**.
+After § 9, add **public** north–south entry in **`istio-ingress`** using the **Kubernetes Gateway API** with **`spec.gatewayClassName: istio`** (not `networking.istio.io/Gateway`). Istio creates **`public-ingress-istio`** **Deployment**/**Service** there—separate from **`istio-eastwestgateway`** (**`istio-eastwest`**) and **istiod** (**`istio-system`**).
 
-**Manifests:** [`manifests/east/`](../manifests/east/) (`Namespace` with injection, `Gateway`, `httpbin`, `HTTPRoute`). Apply from the **repository root**.
+**Manifests:** [`manifests/east/`](../manifests/east/) — **`Namespace` `istio-ingress`**, **`Gateway` `public-ingress`**, **`httpbin`**, **`HTTPRoute`**. Listener hostname **`east-ingress.example.com`** (edit YAML if yours differs).
 
 **Run on: East**
 
 ```bash
 oc get gatewayclass istio
 oc apply -k manifests/east/
-oc wait --for=condition=programmed "gtw/east-ingress" -n east-ingress --timeout=3m
+oc apply -f manifests/sample/referencegrant-istio-ingress.yaml
+oc wait --for=condition=programmed "gtw/public-ingress" -n istio-ingress --timeout=3m
 ```
 
-If **`east-ingress-istio`** is **ClusterIP**, expose it (ROSA often sets **LoadBalancer** automatically):
+If **`public-ingress-istio`** is **ClusterIP**, expose it (ROSA often sets **LoadBalancer** automatically):
 
 ```bash
-oc patch svc east-ingress-istio -n east-ingress -p '{"spec":{"type":"LoadBalancer"}}'
+oc patch svc public-ingress-istio -n istio-ingress -p '{"spec":{"type":"LoadBalancer"}}'
 ```
 
 ```bash
-oc get gtw east-ingress -n east-ingress -o jsonpath='{.status.addresses[0].value}{"\n"}'
-export INGRESS_HOST=$(oc get gtw east-ingress -n east-ingress -o jsonpath='{.status.addresses[0].value}')
+oc get gtw public-ingress -n istio-ingress -o jsonpath='{.status.addresses[0].value}{"\n"}'
+export INGRESS_HOST=$(oc get gtw public-ingress -n istio-ingress -o jsonpath='{.status.addresses[0].value}')
 curl -sI -H 'Host: east-ingress.example.com' "http://${INGRESS_HOST}/headers"
 ```
 
 ### Verification (checkpoint — § 10)
 
 ```bash
-oc get gtw east-ingress -n east-ingress
-oc get deploy,svc -n east-ingress
+oc get gtw public-ingress -n istio-ingress
+oc get deploy,svc -n istio-ingress
 ```
 
 - **`Gateway`** condition **Programmed** = **True**.
-- **`east-ingress-istio`** **Service** has an external hostname or IP when using a cloud LB.
+- **`public-ingress-istio`** **Service** has an external hostname or IP when using a cloud LB.
 
 Use **one path (or match set) per `HTTPRoute` rule**—multiple `matches` in the **same** rule are **AND**ed. TLS, Routes, and advanced options: [Gateways guide](https://docs.redhat.com/en/documentation/red_hat_openshift_service_mesh/3.3/html/gateways/ossm-gateways).
 
@@ -802,29 +803,29 @@ Use **one path (or match set) per `HTTPRoute` rule**—multiple `matches` in the
 
 ## 11) North–south ingress — Gateway API on **West** (ROSA2)
 
-**Run on: West** — same mechanism as § 10. [`manifests/west/`](../manifests/west/) defines **`west-ingress`** with **`istio-injection: enabled`** (injection for the managed gateway workload), **`Gateway`** **`west-ingress`** (**`gatewayClassName: istio`**), **`httpbin`**, and **`HTTPRoute`**. Istio creates **`west-ingress-istio`** **Deployment**/**Service** (not **`istio-eastwestgateway`**). Apply the bundle and (if you use **`/hello`** to **`sample/helloworld`**) the West **`ReferenceGrant`**:
+**Run on: West** — same layout as § 10: **`istio-ingress`** / **`Gateway` `public-ingress`**, listener hostname **`west-ingress.example.com`** ([`manifests/west/`](../manifests/west/)). Apply the **`ReferenceGrant`** when using **`/hello`** → **`sample/helloworld`** (same manifest as East).
 
 ```bash
 oc get gatewayclass istio
 oc apply -k manifests/west/
-oc apply -f manifests/sample/referencegrant-west-ingress.yaml
-oc wait --for=condition=programmed "gtw/west-ingress" -n west-ingress --timeout=3m
+oc apply -f manifests/sample/referencegrant-istio-ingress.yaml
+oc wait --for=condition=programmed "gtw/public-ingress" -n istio-ingress --timeout=3m
 ```
 
-If **`west-ingress-istio`** is **ClusterIP**:
+If **`public-ingress-istio`** is **ClusterIP**:
 
 ```bash
-oc patch svc west-ingress-istio -n west-ingress -p '{"spec":{"type":"LoadBalancer"}}'
+oc patch svc public-ingress-istio -n istio-ingress -p '{"spec":{"type":"LoadBalancer"}}'
 ```
 
 ```bash
-export INGRESS_HOST=$(oc get gtw west-ingress -n west-ingress -o jsonpath='{.status.addresses[0].value}')
+export INGRESS_HOST=$(oc get gtw public-ingress -n istio-ingress -o jsonpath='{.status.addresses[0].value}')
 curl -sI -H 'Host: west-ingress.example.com' "http://${INGRESS_HOST}/headers"
 ```
 
 ### Verification (checkpoint — § 11)
 
-Same as § 10 for namespace **`west-ingress`** and gateway **`west-ingress`**.
+Same as § 10: namespace **`istio-ingress`**, gateway **`public-ingress`**.
 
 Do **not** repoint **`istio-eastwestgateway`** for north–south; east–west stays on **15443**.
 
@@ -832,7 +833,7 @@ Do **not** repoint **`istio-eastwestgateway`** for north–south; east–west st
 
 ## Appendix A — East–west network connectivity checks
 
-Use the **external hostnames** (or IPs) of **`istio-eastwestgateway`** from § 6 (East) and § 8 (West).
+Use the **external hostnames** (or IPs) of **`istio-eastwestgateway`** **Service** in **`istio-eastwest`** from § 6 (East) and § 8 (West).
 
 **From a host that can reach both clouds** (laptop on correct network, jump host, or a pod in one cluster with outbound access):
 

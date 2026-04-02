@@ -65,7 +65,7 @@ To **recreate** remote secrets only: merge both clusters into one kubeconfig wit
 
 ### 9. Optional north–south ingress (Gateway API)
 
-**§10** (East) and **§11** (West) with [`manifests/east/`](manifests/east/) and [`manifests/west/`](manifests/west/). **West mirrors East:** each ingress namespace (`east-ingress` / `west-ingress`) is labeled **`istio-injection=enabled`**, and a **`Gateway`** with **`gatewayClassName: istio`** causes Istio to run the north–south proxy as **`<gateway-name>-istio`** (separate from **`istio-eastwestgateway`**). Cross-namespace routes need **`ReferenceGrant`** manifests under [`manifests/sample/`](manifests/sample/).
+**§10** (East) and **§11** (West) with [`manifests/east/`](manifests/east/) and [`manifests/west/`](manifests/west/). **North–south** uses **`istio-ingress`** (**`Gateway` `public-ingress`**, **`public-ingress-istio`** workload). **East–west** uses **`istio-eastwest`** ([`manifests/istio-eastwest/`](manifests/istio-eastwest/)); **`istio-system`** stays for **istiod** and mesh secrets only. Cross-namespace routes need **`ReferenceGrant`** ([`manifests/sample/referencegrant-istio-ingress.yaml`](manifests/sample/referencegrant-istio-ingress.yaml)).
 
 ### 10. Applications and routing
 
@@ -137,7 +137,7 @@ export KUBECONFIG_WEST="$(pwd)/.kube/config-west"
 
 ### 3) Run the full Day 1 script
 
-This performs, in order: **Subscription** (Service Mesh operator) on both clusters → wait for CSV **Succeeded** → **`istio-cni`** project + **`IstioCNI`** → mesh PKI under **`./ossm-mesh-certs`** (unless already present) → **`istio-system`** + **`cacerts`** (East `network1`, West `network2`) → **`Istio`** CR (`cluster1` / `cluster2`, **`mesh1`**) → east–west gateway YAML from sail-operator + **expose-services** → **`cluster-reader`** for **`istio-reader-service-account`** → **remote secrets** (with ROSA TLS patch).
+This performs, in order: **Subscription** (Service Mesh operator) on both clusters → wait for CSV **Succeeded** → **`istio-cni`** project + **`IstioCNI`** → mesh PKI under **`./ossm-mesh-certs`** (unless already present) → **`istio-system`** + **`cacerts`** (East `network1`, West `network2`) → **`Istio`** CR (`cluster1` / `cluster2`, **`mesh1`**) → east–west gateway in **`istio-eastwest`** ([`manifests/istio-eastwest/`](manifests/istio-eastwest/)) → **`cluster-reader`** for **`istio-reader-service-account`** → **remote secrets** (with ROSA TLS patch).
 
 ```bash
 # optional: export PKI_DIR="$HOME/ossm-mesh-certs"
@@ -189,9 +189,9 @@ On **non-ROSA** clusters you can often **`oc apply -f`** the raw **`istioctl`** 
 **East–west gateway** (should be **`1/1`** **Available**, **LoadBalancer** hostname, pod **Running**):
 
 ```bash
-oc --kubeconfig="$KUBECONFIG_EAST" -n istio-system get deploy,svc -l istio=eastwestgateway
-oc --kubeconfig="$KUBECONFIG_EAST" -n istio-system get pods -l istio=eastwestgateway
-oc --kubeconfig="$KUBECONFIG_WEST" -n istio-system get deploy,svc -l istio=eastwestgateway
+oc --kubeconfig="$KUBECONFIG_EAST" -n istio-eastwest get deploy,svc -l istio=eastwestgateway
+oc --kubeconfig="$KUBECONFIG_EAST" -n istio-eastwest get pods -l istio=eastwestgateway
+oc --kubeconfig="$KUBECONFIG_WEST" -n istio-eastwest get deploy,svc -l istio=eastwestgateway
 ```
 
 **Remote secrets:**
@@ -215,9 +215,9 @@ oc --kubeconfig="$KUBECONFIG_WEST" logs deploy/istiod -n istio-system --tail=30 
 ```bash
 oc --kubeconfig="$KUBECONFIG_EAST" apply -k manifests/east/
 oc --kubeconfig="$KUBECONFIG_WEST" apply -k manifests/west/
-# cross-namespace backends to sample namespace, as in the doc:
-oc --kubeconfig="$KUBECONFIG_EAST" apply -f manifests/sample/referencegrant-helloworld.yaml
-oc --kubeconfig="$KUBECONFIG_WEST" apply -f manifests/sample/referencegrant-west-ingress.yaml
+# cross-namespace backends to sample namespace (same grant on both clusters):
+oc --kubeconfig="$KUBECONFIG_EAST" apply -f manifests/sample/referencegrant-istio-ingress.yaml
+oc --kubeconfig="$KUBECONFIG_WEST" apply -f manifests/sample/referencegrant-istio-ingress.yaml
 ```
 
 Then follow [docs/ossm-mesh-applications-and-routing.md](docs/ossm-mesh-applications-and-routing.md) for **`sample`** / helloworld.
@@ -239,7 +239,8 @@ FORCE_PKI=1 bash scripts/generate-mesh-pki.sh
 | ---- | -------- |
 | `docs/` | Provisioning runbook, applications runbook, small index |
 | `config/demo-params.example.yaml` | Example mesh/ingress parameters (copy to `demo-params.yaml`) |
-| `manifests/east/`, `manifests/west/` | Gateway API ingress samples |
+| `manifests/east/`, `manifests/west/` | Gateway API ingress (**`istio-ingress`**) |
+| `manifests/istio-eastwest/` | Cross-cluster **`istio-eastwestgateway`** + **`cross-network-gateway`** |
 | `manifests/sample/` | **`ReferenceGrant`** helpers |
 | `manifests/console/` | Optional **`ConsoleNotification`** banners |
 | `scripts/` | **`day1-deploy.sh`**, **`recreate-remote-secrets.sh`**, PKI generator, ROSA remote-secret patcher |

@@ -308,7 +308,7 @@ oc delete ns sample --ignore-not-found
 oc delete ns sample --ignore-not-found
 ```
 
-**Ingress-only namespaces** (for example `east-ingress`, or `west-ingress` if you created them) can be removed separately when you no longer need north–south entry on that cluster.
+**Ingress-only namespaces** (**`istio-ingress`** for Gateway API north–south) can be removed separately when you no longer need that entry point on that cluster.
 
 **Full control-plane / mesh teardown** (both clusters) follows Red Hat **§ 6.3.2**—see [ossm-multi-cluster-mesh-provisioning.md](ossm-multi-cluster-mesh-provisioning.md) for context and links. Illustrative commands:
 
@@ -319,7 +319,7 @@ oc delete istio/default ns/istio-system ns/sample ns/istio-cni
 oc delete istio/default ns/istio-system ns/sample ns/istio-cni
 ```
 
-Adjust namespaces (`east-ingress`, `west-ingress`, `istio-cni`, etc.) to match what you actually created.
+Adjust namespaces (`istio-ingress`, `istio-eastwest`, `istio-cni`, etc.) to match what you actually created.
 
 ---
 
@@ -332,28 +332,28 @@ After [§ 10–11 in the provisioning guide](ossm-multi-cluster-mesh-provisionin
 | File | Role |
 | ---- | ---- |
 | [`manifests/east/httproute.yaml`](../manifests/east/httproute.yaml) | Rules: `/status`, `/headers` → **`httpbin`** (separate **rules**—each rule’s `matches` list is **AND**ed). `/hello` → **`helloworld`** in **`sample`**. |
-| [`manifests/sample/referencegrant-helloworld.yaml`](../manifests/sample/referencegrant-helloworld.yaml) | **`ReferenceGrant`** in **`sample`** for `HTTPRoute` in **`east-ingress`** → **`Service/helloworld`**. |
+| [`manifests/sample/referencegrant-istio-ingress.yaml`](../manifests/sample/referencegrant-istio-ingress.yaml) | **`ReferenceGrant`** in **`sample`** for `HTTPRoute` in **`istio-ingress`** → **`Service/helloworld`** (apply on **East and West**). |
 
 **West ingress**
 
 | File | Role |
 | ---- | ---- |
 | [`manifests/west/httproute.yaml`](../manifests/west/httproute.yaml) | Same path split as East; listener host **`west-ingress.example.com`**. |
-| [`manifests/sample/referencegrant-west-ingress.yaml`](../manifests/sample/referencegrant-west-ingress.yaml) | **`ReferenceGrant`** for `HTTPRoute` in **`west-ingress`**. |
+| [`manifests/sample/referencegrant-istio-ingress.yaml`](../manifests/sample/referencegrant-istio-ingress.yaml) | Same **`ReferenceGrant`** as East (apply on West too). |
 
-Apply order: gateway bundle (`oc apply -k manifests/east/` or `manifests/west/`), then the matching **`ReferenceGrant`** if you use **`/hello`** to **`sample/helloworld`**.
+Apply order: gateway bundle (`oc apply -k manifests/east/` or `manifests/west/`), then **`manifests/sample/referencegrant-istio-ingress.yaml`** on **each** cluster if you use **`/hello`** to **`sample/helloworld`**. Aliases: **`referencegrant-helloworld.yaml`** / **`referencegrant-west-ingress.yaml`** match this content for older notes.
 
 **Client check (East)** — listener host from [`manifests/east/gateway.yaml`](../manifests/east/gateway.yaml):
 
 ```bash
-export INGRESS_HOST=$(oc get gtw east-ingress -n east-ingress -o jsonpath='{.status.addresses[0].value}')
+export INGRESS_HOST=$(oc get gtw public-ingress -n istio-ingress -o jsonpath='{.status.addresses[0].value}')
 curl -sS -H 'Host: east-ingress.example.com' "http://${INGRESS_HOST}/hello"
 ```
 
 **Client check (West)** — **`oc`** on West; host from [`manifests/west/gateway.yaml`](../manifests/west/gateway.yaml):
 
 ```bash
-export INGRESS_HOST=$(oc get gtw west-ingress -n west-ingress -o jsonpath='{.status.addresses[0].value}')
+export INGRESS_HOST=$(oc get gtw public-ingress -n istio-ingress -o jsonpath='{.status.addresses[0].value}')
 curl -sS -H 'Host: west-ingress.example.com' "http://${INGRESS_HOST}/hello"
 ```
 
