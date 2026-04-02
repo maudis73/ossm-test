@@ -61,9 +61,11 @@ In order: **§5–8** — **`Istio` CR** and east–west gateway / **`expose-ser
 
 Complete **§9** on both sides, including RBAC (**§9a**), **`istioctl create-remote-secret`** (**§9b**), and the **§9c** ROSA TLS note if istiod logs show **`x509: certificate signed by unknown authority`**.
 
+To **recreate** remote secrets only: merge both clusters into one kubeconfig with contexts **`cluster-east`** and **`cluster-west`**, set **`KUBECONFIG`** if not using `~/.kube/config`, then run [`scripts/recreate-remote-secrets.sh`](scripts/recreate-remote-secrets.sh) (override names with **`CONTEXT_EAST`** / **`CONTEXT_WEST`** if needed).
+
 ### 9. Optional north–south ingress (Gateway API)
 
-**§10** (East) and **§11** (West) with [`manifests/east/`](manifests/east/) and [`manifests/west/`](manifests/west/). Cross-namespace routes need **`ReferenceGrant`** manifests under [`manifests/sample/`](manifests/sample/).
+**§10** (East) and **§11** (West) with [`manifests/east/`](manifests/east/) and [`manifests/west/`](manifests/west/). **West mirrors East:** each ingress namespace (`east-ingress` / `west-ingress`) is labeled **`istio-injection=enabled`**, and a **`Gateway`** with **`gatewayClassName: istio`** causes Istio to run the north–south proxy as **`<gateway-name>-istio`** (separate from **`istio-eastwestgateway`**). Cross-namespace routes need **`ReferenceGrant`** manifests under [`manifests/sample/`](manifests/sample/).
 
 ### 10. Applications and routing
 
@@ -180,6 +182,8 @@ oc --kubeconfig="$KUBECONFIG_WEST" apply -f "$TMP/fix-ew.yaml"
 
 On **non-ROSA** clusters you can often **`oc apply -f`** the raw **`istioctl`** output without the Python step (see [provisioning doc §9](docs/ossm-multi-cluster-mesh-provisioning.md)).
 
+**Shortcut:** **`./scripts/recreate-remote-secrets.sh`** runs the West→East and East→West flow above (ROSA patch included) using **`--context cluster-west`** / **`--context cluster-east`** on a single **`KUBECONFIG`** (see script header for **`CONTEXT_*`** overrides).
+
 ### 5) Verification (same checks used after deploy)
 
 **East–west gateway** (should be **`1/1`** **Available**, **LoadBalancer** hostname, pod **Running**):
@@ -238,7 +242,7 @@ FORCE_PKI=1 bash scripts/generate-mesh-pki.sh
 | `manifests/east/`, `manifests/west/` | Gateway API ingress samples |
 | `manifests/sample/` | **`ReferenceGrant`** helpers |
 | `manifests/console/` | Optional **`ConsoleNotification`** banners |
-| `scripts/` | **`day1-deploy.sh`**, PKI generator, ROSA remote-secret patcher |
+| `scripts/` | **`day1-deploy.sh`**, **`recreate-remote-secrets.sh`**, PKI generator, ROSA remote-secret patcher |
 
 **.gitignore** excludes local kubeconfig trees, PKI directories, `*-cert` stubs, and **`config/demo-params.yaml`**.
 

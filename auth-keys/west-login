@@ -1,0 +1,2 @@
+oc login --token=sha256~N3M3cVxerrbbdexaBSUg-PEXB0dd3phcM07DkcV8m3I --server=https://api.rosa-rbzdw.cyuf.p3.openshiftapps.com:443
+

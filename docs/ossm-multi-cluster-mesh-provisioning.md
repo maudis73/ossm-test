@@ -802,7 +802,7 @@ Use **one path (or match set) per `HTTPRoute` rule**—multiple `matches` in the
 
 ## 11) North–south ingress — Gateway API on **West** (ROSA2)
 
-**Run on: West** — mirror of § 10 using [`manifests/west/`](../manifests/west/):
+**Run on: West** — same mechanism as § 10. [`manifests/west/`](../manifests/west/) defines **`west-ingress`** with **`istio-injection: enabled`** (injection for the managed gateway workload), **`Gateway`** **`west-ingress`** (**`gatewayClassName: istio`**), **`httpbin`**, and **`HTTPRoute`**. Istio creates **`west-ingress-istio`** **Deployment**/**Service** (not **`istio-eastwestgateway`**). Apply the bundle and (if you use **`/hello`** to **`sample/helloworld`**) the West **`ReferenceGrant`**:
 
 ```bash
 oc get gatewayclass istio

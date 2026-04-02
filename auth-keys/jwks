@@ -1,0 +1,20 @@
+spec:
+  jwtRules:
+  - issuer: "https://my-auth-authority.com"
+    jwks: |
+      {
+        "keys": [
+          {
+            "alg": "RS256",
+            "e": "AQAB",
+            "ext": true,
+            "key_ops": [
+              "verify"
+            ],
+            "kty": "RSA",
+            "n": "opf73zQj5vaot-WbO9ZnuVTNI6RE6HCRoyz_bVj_Dh-YUOXhFWkkqqjuXCqGVSfmuyQrbvkVF8XeoOunFlnHJSh8T4z3O2aEdOXGkno2c46-IPLC5NwhKDLdaRTkiNxgb4e9K5EydCmpdY1Vq-XYRBI5-2hyW1_WWfp4GkRrxzAJ5k0h-u6cIUb5oZp42VitlhHWCvCQaEJUywWThGOlwySBCFpzC3t4Ig1AhipqCazW_g-qY5xU6RIeT_GQFY-OkoIPF11707n6cw-55TSIO2KJ6b-y5pcyEoeP8dCuiPUt_6SQQ75xSjAbywNbISMSqBmJAd8uQUS8goXtiadmuw",
+            "kid": "my-custom-key-1",
+            "use": "sig"
+          }
+        ]
+      }

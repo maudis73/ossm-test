@@ -1,0 +1,2 @@
+oc login --token=sha256~SuLsscKDX3HhTK7Q5xmDb3LM8N6dLJGB0bPJUt8nfnE --server=https://api.rosa-mh725.i59d.p3.openshiftapps.com:443
+

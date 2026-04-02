@@ -1,0 +1,32 @@
+# Gen a JWT TOKEN
+TOKEN=$(python3 -c "
+import jwt, time
+# 1. Load the private key
+with open('/home/mdiscepo/projects/ossm-test/auth-keys/private.pem', 'r') as f: 
+    priv_key = f.read()
+
+# 2. Define the payload as a REAL Python dictionary
+payload = {
+    'iss': 'https://my-auth-authority.com',
+    'sub': 'user-123',
+    'role': 'admin',
+    'email': 'alex@company.com',
+    'iat': int(time.time()),
+    'exp': int(time.time()) + 86400
+}
+
+# 3. Sign it with the EXACT 'kid' your script generated
+print(jwt.encode(payload, priv_key, algorithm='RS256', headers={'kid': 'Nbj_lSHTZoHbC2bb_SsUIO_U9tODIGQiNRbsWhqqNlY'}))
+")
+
+
+# Test the TOKEN
+echo $TOKEN | cut -d. -f2 | base64 -d | jq .
+
+
+
+curl -v -H "Authorization: Bearer $TOKEN"      -H "Host: east-ingress.example.com"      http://$GATEWAY_URL/hello
+
+# Mutiple Run
+for i in {1..10}; do    curl -s -I -o /dev/null -w "Request $i: %{http_code}\n"   -H "Authorization: Bearer $TOKEN"   -H "Host: east-ingress.example.com"   http://$GATEWAY_URL/hello;  done
+

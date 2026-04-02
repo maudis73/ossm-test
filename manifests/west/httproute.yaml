@@ -10,6 +10,7 @@ spec:
   hostnames:
     - west-ingress.example.com
   rules:
+    # One path per rule: multiple matches in the same rule are ANDed (all must match).
     - matches:
         - path:
             type: PathPrefix
